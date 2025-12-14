@@ -1,6 +1,20 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <PackageId>MQTTnet.DependencyInjection</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>Antonov D. A.</Authors>
+    <Description>Extencion for MQTTNet. Integration with microsoft dependency injection</Description>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/wdantw/mqttnet-dependency-injection</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/wdantw/mqttnet-dependency-injection</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
