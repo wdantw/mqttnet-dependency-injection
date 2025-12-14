@@ -11,7 +11,7 @@
     <PackageProjectUrl>https://github.com/wdantw/mqttnet-dependency-injection</PackageProjectUrl>
     <RepositoryUrl>https://github.com/wdantw/mqttnet-dependency-injection</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <!--<PackageReadmeFile>README.md</PackageReadmeFile>-->
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     
