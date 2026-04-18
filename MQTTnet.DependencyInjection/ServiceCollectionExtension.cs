@@ -39,6 +39,7 @@ namespace MQTTnet.DependencyInjection
             string? sectionName = null)
             => services
             .Configure<MqttOptions>(configuration.GetSection(sectionName ?? MqttOptions.SectionName))
+            .Configure<MqttLifetimeOptions>(configuration.GetSection(sectionName ?? MqttOptions.SectionName))
             .ConfigureMqttClientOptions<IOptions<MqttOptions>>((cfgBuilder, mqttOptions) =>
             {
                 if (!string.IsNullOrWhiteSpace(mqttOptions.Value.TcpAddress) || mqttOptions.Value.TcpPort.HasValue)

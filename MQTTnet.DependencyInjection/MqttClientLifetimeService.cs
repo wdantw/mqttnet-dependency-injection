@@ -1,6 +1,7 @@
 ﻿using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using MQTTnet.DependencyInjection.Options;
 
 namespace MQTTnet.DependencyInjection
 {
@@ -8,36 +9,50 @@ namespace MQTTnet.DependencyInjection
     {
         private readonly IMqttClient _mqttClient;
         private readonly MqttClientOptions _options;
+        private readonly MqttLifetimeOptions _mqttLifetimeOptions;
         private readonly Subscription[] _subscriptions;
         private readonly IServiceProvider _serviceProvider;
         private readonly ILogger<MqttClientLifetimeService> _logger;
+        private readonly CancellationTokenSource _lifetimeCts = new CancellationTokenSource();
 
-
-        private bool _clientStarted = false;
-
-        public MqttClientLifetimeService(IMqttClient mqttClient, IOptions<MqttClientOptionsBuilder> options, IEnumerable<Subscription> subscriptions, IServiceProvider serviceProvider, ILogger<MqttClientLifetimeService> logger)
+        public MqttClientLifetimeService(
+            IMqttClient mqttClient,
+            IOptions<MqttClientOptionsBuilder> options,
+            IEnumerable<Subscription> subscriptions,
+            IServiceProvider serviceProvider,
+            ILogger<MqttClientLifetimeService> logger,
+            IOptions<MqttLifetimeOptions> mqttLifetimeOptions)
         {
             _mqttClient = mqttClient;
             _options = options.Value.Build();
             _subscriptions = subscriptions.ToArray();
             _serviceProvider = serviceProvider;
             _logger = logger;
+            _mqttLifetimeOptions = mqttLifetimeOptions.Value;
         }
 
         public async Task StartAsync(CancellationToken cancellationToken)
         {
-            using var _ = cancellationToken.Register(() => _mqttClient.Dispose());
-
-            await _mqttClient.ConnectAsync(_options, cancellationToken).ConfigureAwait(false);
-
-            _clientStarted = true;
-
             _mqttClient.ApplicationMessageReceivedAsync += MqttClient_ApplicationMessageReceivedAsync;
             _mqttClient.ConnectedAsync += MqttClient_ConnectedAsync;
             _mqttClient.ConnectingAsync += MqttClient_ConnectingAsync;
             _mqttClient.DisconnectedAsync += MqttClient_DisconnectedAsync;
 
-            for(uint subscriptionIndex = 0; subscriptionIndex < _subscriptions.Length; subscriptionIndex++)
+            try
+            {
+                await ReconnectAsync(cancellationToken);
+            }
+            catch (TaskCanceledException)
+            {
+                _mqttClient.Dispose();
+            }
+        }
+
+        private async Task ReconnectAsync(CancellationToken cancellationToken)
+        {
+            await _mqttClient.ConnectAsync(_options, cancellationToken).ConfigureAwait(false);
+
+            for (uint subscriptionIndex = 0; subscriptionIndex < _subscriptions.Length; subscriptionIndex++)
             {
                 var subscription = _subscriptions[subscriptionIndex];
 
@@ -50,9 +65,29 @@ namespace MQTTnet.DependencyInjection
             }
         }
 
-        private Task MqttClient_DisconnectedAsync(MqttClientDisconnectedEventArgs arg)
+        // TODO сделать проверку соединения через Ping, сделать обработчик событий потери и восстановления связи для клиента
+
+        private async Task MqttClient_DisconnectedAsync(MqttClientDisconnectedEventArgs arg)
         {
-            return Task.CompletedTask;
+            try
+            {
+                while (true)
+                {
+                    await Task.Delay(_mqttLifetimeOptions.AutoReconnectDelay, _lifetimeCts.Token);
+                    try
+                    {
+                        await ReconnectAsync(_lifetimeCts.Token);
+                        return;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Mqtt reconnect error");
+                    }
+                }
+            }
+            catch (TaskCanceledException)
+            {
+            }
         }
 
         private Task MqttClient_ConnectingAsync(MqttClientConnectingEventArgs arg)
@@ -72,7 +107,7 @@ namespace MQTTnet.DependencyInjection
                 var message = arg.ApplicationMessage;
                 var subsription = _subscriptions[message.SubscriptionIdentifiers.Min() - 1];
                 var consumer = subsription.ConsumerFactory(_serviceProvider);
-                await consumer.Handle(message, default);
+                await consumer.Handle(message, _lifetimeCts.Token);
             }
             catch (Exception ex)
             {
@@ -82,17 +117,16 @@ namespace MQTTnet.DependencyInjection
 
         public async Task StopAsync(CancellationToken cancellationToken)
         {
-            if (!_clientStarted)
-                return;
+            _lifetimeCts.Cancel();
 
             _mqttClient.ApplicationMessageReceivedAsync -= MqttClient_ApplicationMessageReceivedAsync;
             _mqttClient.ConnectedAsync -= MqttClient_ConnectedAsync;
             _mqttClient.ConnectingAsync -= MqttClient_ConnectingAsync;
             _mqttClient.DisconnectedAsync -= MqttClient_DisconnectedAsync;
 
-            using var _ = cancellationToken.Register(() => _mqttClient.Dispose());
-            
             await _mqttClient.DisconnectAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
+            
+            _mqttClient.Dispose();
         }
     }
 }

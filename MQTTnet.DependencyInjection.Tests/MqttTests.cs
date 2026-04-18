@@ -2,8 +2,10 @@
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.VisualStudio.TestPlatform.CommunicationUtilities;
 using MQTTnet.Server;
 using NSubstitute;
+using NSubstitute.ClearExtensions;
 using System.Buffers;
 
 namespace MQTTnet.DependencyInjection.Tests
@@ -11,7 +13,7 @@ namespace MQTTnet.DependencyInjection.Tests
     public class MqttTests
     {
         private const string LocalAddress = "127.0.0.1";
-        private readonly TimeSpan TestTimeout = System.Diagnostics.Debugger.IsAttached ? TimeSpan.FromMinutes(10) : TimeSpan.FromSeconds(2);
+        private readonly TimeSpan TestTimeout = System.Diagnostics.Debugger.IsAttached ? TimeSpan.FromMinutes(10) : TimeSpan.FromSeconds(3);
 
 
         /*
@@ -21,6 +23,7 @@ namespace MQTTnet.DependencyInjection.Tests
          * подписка на сообщения с фильтрами
          * отправка сообщений
          * разные консьюмеры
+         * параллельная отправка, но больше именно интересут параллельная работа пинга и полезная работа
          */
 
         #region common parts
@@ -69,17 +72,26 @@ namespace MQTTnet.DependencyInjection.Tests
         private IMqttConsumer CreateConsumer(out TaskCompletionSource<MqttApplicationMessage> consumerTcs)
         {
             var consumer = Substitute.For<IMqttConsumer>();
-            var tsc = new TaskCompletionSource<MqttApplicationMessage>();
+            consumerTcs = ConsumerReset(consumer);
+            return consumer;
+        }
+
+        private TaskCompletionSource<MqttApplicationMessage> ConsumerReset(IMqttConsumer consumer)
+        {
+            var consumerTcs = new TaskCompletionSource<MqttApplicationMessage>();
+            consumer.ClearSubstitute();
             consumer.Handle(Arg.Any<MqttApplicationMessage>(), Arg.Any<CancellationToken>())
                 .Returns(Task.CompletedTask)
-                .AndDoes(ci => tsc.SetResult(ci.Arg<MqttApplicationMessage>()));
+                .AndDoes(ci => consumerTcs.SetResult(ci.Arg<MqttApplicationMessage>()));
 
-            consumerTcs = tsc;
-            return consumer;
+            return consumerTcs;
         }
 
         #endregion
 
+        /// <summary>
+        /// Базовая проверка приема сообщения
+        /// </summary>
         [Fact]
         public async void TestSimpleConsume()
         {
@@ -114,6 +126,9 @@ namespace MQTTnet.DependencyInjection.Tests
             result.Payload.ToArray().Should().BeEquivalentTo(testData);
         }
 
+        /// <summary>
+        /// Проверка раздельной работы нескольких косьюмеров
+        /// </summary>
         [Fact]
         public async void TestMultiConsume()
         {
@@ -161,5 +176,60 @@ namespace MQTTnet.DependencyInjection.Tests
             result1.Payload.ToArray().Should().BeEquivalentTo(testData1);
             result2.Payload.ToArray().Should().BeEquivalentTo(testData2);
         }
+
+        /// <summary>
+        /// Проверка восстановления соединения после потери связи
+        /// </summary>
+        [Fact]
+        public async void TestReconnect()
+        {
+            // arrange
+            var port = 1886;
+            var topicName = "mqttditests/reconnecttest";
+            var testData1 = new Fixture().CreateMany<byte>(10).ToArray();
+            var testData2 = new Fixture().CreateMany<byte>(10).ToArray();
+            var testCts = new CancellationTokenSource(TestTimeout);
+
+            var consumer = CreateConsumer(out var consumerTcs);
+            using var mqttServer = await StartServer(port);
+
+            using var host = CreateHost(port, services =>
+            {
+                services.RegisterMqttConsumer(_ => consumer, new MqttTopicFilterBuilder().WithTopic(topicName).Build());
+            });
+
+            var message1 = new MqttApplicationMessageBuilder()
+                .WithTopic(topicName)
+                .WithPayload(testData1)
+                .WithRetainFlag(false)
+                .Build();
+
+            var message2 = new MqttApplicationMessageBuilder()
+                .WithTopic(topicName)
+                .WithPayload(testData2)
+                .WithRetainFlag(false)
+                .Build();
+
+            // act
+            await host.StartAsync(testCts.Token);
+            using var mqttClient1 = await StartClient(port, testCts.Token);
+            await mqttClient1.PublishAsync(message1, testCts.Token);
+            var result1 = await consumerTcs.Task.WaitAsync(testCts.Token);
+            await mqttServer.StopAsync();
+            consumerTcs = ConsumerReset(consumer);
+            await mqttServer.StartAsync();
+            await Task.Delay(200);
+            using var mqttClient2 = await StartClient(port, testCts.Token);
+            await mqttClient2.PublishAsync(message2, testCts.Token);
+            var result2 = await consumerTcs.Task.WaitAsync(testCts.Token);
+            await host.StopAsync(testCts.Token);
+
+            // asserts
+            result1.Should().NotBeNull();
+            result2.Should().NotBeNull();
+            result1.Payload.ToArray().Should().BeEquivalentTo(testData1);
+            result2.Payload.ToArray().Should().BeEquivalentTo(testData2);
+        }
+
     }
 }

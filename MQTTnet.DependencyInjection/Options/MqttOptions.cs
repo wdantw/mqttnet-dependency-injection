@@ -13,10 +13,5 @@
         /// Порт сервера Mqtt
         /// </summary>
         public int? TcpPort { get; set; }
-
-        /// <summary>
-        /// Задержка между переконнектом
-        /// </summary>
-        public TimeSpan? AutoReconnectDelay { get; set; }
     }
 }
