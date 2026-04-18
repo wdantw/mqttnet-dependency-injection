@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace MQTTnet.DependencyInjection
@@ -8,16 +9,19 @@ namespace MQTTnet.DependencyInjection
         private readonly IMqttClient _mqttClient;
         private readonly MqttClientOptions _options;
         private readonly Subscription[] _subscriptions;
-        private readonly IMqttConsumer _consumer;
+        private readonly IServiceProvider _serviceProvider;
+        private readonly ILogger<MqttClientLifetimeService> _logger;
+
 
         private bool _clientStarted = false;
 
-        public MqttClientLifetimeService(IMqttClient mqttClient, IOptions<MqttClientOptionsBuilder> options, IEnumerable<Subscription> subscriptions, IMqttConsumer consumer)
+        public MqttClientLifetimeService(IMqttClient mqttClient, IOptions<MqttClientOptionsBuilder> options, IEnumerable<Subscription> subscriptions, IServiceProvider serviceProvider, ILogger<MqttClientLifetimeService> logger)
         {
             _mqttClient = mqttClient;
             _options = options.Value.Build();
             _subscriptions = subscriptions.ToArray();
-            _consumer = consumer;
+            _serviceProvider = serviceProvider;
+            _logger = logger;
         }
 
         public async Task StartAsync(CancellationToken cancellationToken)
@@ -33,11 +37,16 @@ namespace MQTTnet.DependencyInjection
             _mqttClient.ConnectingAsync += MqttClient_ConnectingAsync;
             _mqttClient.DisconnectedAsync += MqttClient_DisconnectedAsync;
 
-            foreach(var subscription in _subscriptions)
+            for(uint subscriptionIndex = 0; subscriptionIndex < _subscriptions.Length; subscriptionIndex++)
             {
-                var sbubscribeBuilder = new MqttClientSubscribeOptionsBuilder();
-                sbubscribeBuilder.WithTopicFilter(subscription.Filter);
-                await _mqttClient.SubscribeAsync(sbubscribeBuilder.Build(), cancellationToken);
+                var subscription = _subscriptions[subscriptionIndex];
+
+                var sbubscribeOptions = new MqttClientSubscribeOptionsBuilder()
+                    .WithTopicFilter(subscription.Filter)
+                    .WithSubscriptionIdentifier(subscriptionIndex + 1)
+                    .Build();
+
+                await _mqttClient.SubscribeAsync(sbubscribeOptions, cancellationToken);
             }
         }
 
@@ -58,7 +67,17 @@ namespace MQTTnet.DependencyInjection
 
         private async Task MqttClient_ApplicationMessageReceivedAsync(MqttApplicationMessageReceivedEventArgs arg)
         {
-            await _consumer.Handle(arg.ApplicationMessage, default);
+            try
+            {
+                var message = arg.ApplicationMessage;
+                var subsription = _subscriptions[message.SubscriptionIdentifiers.Min() - 1];
+                var consumer = subsription.ConsumerFactory(_serviceProvider);
+                await consumer.Handle(message, default);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Incoming message processing error");
+            }
         }
 
         public async Task StopAsync(CancellationToken cancellationToken)

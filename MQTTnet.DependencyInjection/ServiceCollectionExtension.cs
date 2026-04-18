@@ -68,15 +68,9 @@ namespace MQTTnet.DependencyInjection
         /// <summary>
         /// Регистрация консьюмера
         /// </summary>
-        public static IServiceCollection RegisterMqttConsumer(this IServiceCollection services, Func<IServiceProvider, IMqttConsumer> factory)
-            => services.AddTransient(factory);
-
-        /// <summary>
-        /// Подписка на Mqtt топики
-        /// </summary>
-        public static IServiceCollection RegisterMqttSubscription(this IServiceCollection services, MqttTopicFilter filter)
-            => services.AddSingleton(new Subscription(filter));
-
-
+        public static IServiceCollection RegisterMqttConsumer(this IServiceCollection services,
+            Func<IServiceProvider, IMqttConsumer> factory,
+            MqttTopicFilter filter)
+            => services.AddSingleton(new Subscription(filter, factory));
     }
 }
