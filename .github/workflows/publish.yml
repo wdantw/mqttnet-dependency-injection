@@ -4,9 +4,6 @@ on:
   push:
     branches:
       - main  # Триггер на каждый push в main
-  pull_request:
-    branches:
-      - main
 
 env:
   DOTNET_VERSION: '8.x'
@@ -34,6 +31,9 @@ jobs:
       - name: Build
         run: dotnet build --configuration Release --no-restore
       
+      - name: Tests
+        run: dotnet test --configuration Release --no-build --verbosity normal
+
       - name: Pack
         run: dotnet pack --configuration Release --no-build --output ./artifacts /p:Version=${{ env.VERSION }} /p:PackageVersion=${{ env.VERSION }}
 
