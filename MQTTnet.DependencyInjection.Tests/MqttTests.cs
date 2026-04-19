@@ -224,11 +224,5 @@ namespace MQTTnet.DependencyInjection.Tests
             result1.Payload.ToArray().Should().BeEquivalentTo(testData1);
             result2.Payload.ToArray().Should().BeEquivalentTo(testData2);
         }
-    
-        [Fact]
-        public void Failed()
-        {
-            throw new Exception("demo");
-        }
     }
 }
