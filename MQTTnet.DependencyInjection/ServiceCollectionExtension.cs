@@ -55,7 +55,8 @@ namespace MQTTnet.DependencyInjection
             return services
                 .AddHostedService<MqttClientLifetimeService>()
                 .AddSingleton<MqttClientFactory>()
-                .AddSingleton(sp => sp.GetRequiredService<MqttClientFactory>().CreateMqttClient());
+                .AddSingleton(sp => sp.GetRequiredService<MqttClientFactory>().CreateMqttClient())
+                .AddSingleton<IMqttPublisher, MqttPublisher>();
         }
 
         /// <summary>
