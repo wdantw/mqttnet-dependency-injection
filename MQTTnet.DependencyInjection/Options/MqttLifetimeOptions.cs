@@ -5,6 +5,6 @@
         /// <summary>
         /// Задержка между переконнектом
         /// </summary>
-        public TimeSpan AutoReconnectDelay { get; set; } = TimeSpan.FromMilliseconds(100);
+        public TimeSpan AutoReconnectDelay { get; set; } = TimeSpan.FromMilliseconds(300);
     }
 }

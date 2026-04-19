@@ -2,7 +2,7 @@
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.VisualStudio.TestPlatform.CommunicationUtilities;
+using MQTTnet.DependencyInjection.Options;
 using MQTTnet.Server;
 using NSubstitute;
 using NSubstitute.ClearExtensions;
@@ -14,17 +14,6 @@ namespace MQTTnet.DependencyInjection.Tests
     {
         private const string LocalAddress = "127.0.0.1";
         private readonly TimeSpan TestTimeout = System.Diagnostics.Debugger.IsAttached ? TimeSpan.FromMinutes(10) : TimeSpan.FromSeconds(3);
-
-
-        /*
-         * стоит протестировать
-         * использование логгера
-         * перезапуск сервера
-         * подписка на сообщения с фильтрами
-         * отправка сообщений
-         * разные консьюмеры
-         * параллельная отправка, но больше именно интересут параллельная работа пинга и полезная работа
-         */
 
         #region common parts
 
@@ -61,6 +50,11 @@ namespace MQTTnet.DependencyInjection.Tests
                     services.ConfigureMqttClientOptions(cfgBuilder =>
                     {
                         cfgBuilder.WithTcpServer(LocalAddress, port);
+                    });
+
+                    services.Configure<MqttLifetimeOptions>(opt =>
+                    {
+                        opt.AutoReconnectDelay = TimeSpan.FromMilliseconds(100);
                     });
 
                     services.AddMqtt();

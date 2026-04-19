@@ -65,8 +65,6 @@ namespace MQTTnet.DependencyInjection
             }
         }
 
-        // TODO сделать проверку соединения через Ping, сделать обработчик событий потери и восстановления связи для клиента
-
         private async Task MqttClient_DisconnectedAsync(MqttClientDisconnectedEventArgs arg)
         {
             try

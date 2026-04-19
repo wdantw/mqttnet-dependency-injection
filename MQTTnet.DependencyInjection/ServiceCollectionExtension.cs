@@ -2,7 +2,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
-using MQTTnet.Adapter;
 using MQTTnet.DependencyInjection.Options;
 using MQTTnet.Diagnostics.Logger;
 using MQTTnet.Packets;
@@ -42,8 +41,8 @@ namespace MQTTnet.DependencyInjection
             .Configure<MqttLifetimeOptions>(configuration.GetSection(sectionName ?? MqttOptions.SectionName))
             .ConfigureMqttClientOptions<IOptions<MqttOptions>>((cfgBuilder, mqttOptions) =>
             {
-                if (!string.IsNullOrWhiteSpace(mqttOptions.Value.TcpAddress) || mqttOptions.Value.TcpPort.HasValue)
-                    cfgBuilder.WithTcpServer(mqttOptions.Value.TcpAddress ?? "127.0.0.1", mqttOptions.Value.TcpPort);
+                cfgBuilder.WithKeepAlivePeriod(mqttOptions.Value.KeepAlivePeriod);
+                cfgBuilder.WithTcpServer(mqttOptions.Value.TcpAddress, mqttOptions.Value.TcpPort);
             });
 
         /// <summary>
