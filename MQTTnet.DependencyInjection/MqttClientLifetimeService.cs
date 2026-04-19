@@ -34,8 +34,6 @@ namespace MQTTnet.DependencyInjection
         public async Task StartAsync(CancellationToken cancellationToken)
         {
             _mqttClient.ApplicationMessageReceivedAsync += MqttClient_ApplicationMessageReceivedAsync;
-            _mqttClient.ConnectedAsync += MqttClient_ConnectedAsync;
-            _mqttClient.ConnectingAsync += MqttClient_ConnectingAsync;
             _mqttClient.DisconnectedAsync += MqttClient_DisconnectedAsync;
 
             try
@@ -77,6 +75,10 @@ namespace MQTTnet.DependencyInjection
                         await ReconnectAsync(_lifetimeCts.Token);
                         return;
                     }
+                    catch (TaskCanceledException)
+                    {
+                        return;
+                    }
                     catch (Exception ex)
                     {
                         _logger.LogError(ex, "Mqtt reconnect error");
@@ -86,16 +88,6 @@ namespace MQTTnet.DependencyInjection
             catch (TaskCanceledException)
             {
             }
-        }
-
-        private Task MqttClient_ConnectingAsync(MqttClientConnectingEventArgs arg)
-        {
-            return Task.CompletedTask;
-        }
-
-        private Task MqttClient_ConnectedAsync(MqttClientConnectedEventArgs arg)
-        {
-            return Task.CompletedTask;
         }
 
         private async Task MqttClient_ApplicationMessageReceivedAsync(MqttApplicationMessageReceivedEventArgs arg)
@@ -118,8 +110,6 @@ namespace MQTTnet.DependencyInjection
             _lifetimeCts.Cancel();
 
             _mqttClient.ApplicationMessageReceivedAsync -= MqttClient_ApplicationMessageReceivedAsync;
-            _mqttClient.ConnectedAsync -= MqttClient_ConnectedAsync;
-            _mqttClient.ConnectingAsync -= MqttClient_ConnectingAsync;
             _mqttClient.DisconnectedAsync -= MqttClient_DisconnectedAsync;
 
             await _mqttClient.DisconnectAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
