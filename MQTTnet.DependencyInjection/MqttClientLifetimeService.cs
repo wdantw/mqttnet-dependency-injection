@@ -10,23 +10,20 @@ namespace MQTTnet.DependencyInjection
         private readonly IMqttClient _mqttClient;
         private readonly MqttClientOptions _options;
         private readonly MqttLifetimeOptions _mqttLifetimeOptions;
-        private readonly Subscription[] _subscriptions;
-        private readonly IServiceProvider _serviceProvider;
+        private readonly ISubscription[] _subscriptions;
         private readonly ILogger<MqttClientLifetimeService> _logger;
         private readonly CancellationTokenSource _lifetimeCts = new CancellationTokenSource();
 
         public MqttClientLifetimeService(
             IMqttClient mqttClient,
             IOptions<MqttClientOptionsBuilder> options,
-            IEnumerable<Subscription> subscriptions,
-            IServiceProvider serviceProvider,
+            IEnumerable<ISubscription> subscriptions,
             ILogger<MqttClientLifetimeService> logger,
             IOptions<MqttLifetimeOptions> mqttLifetimeOptions)
         {
             _mqttClient = mqttClient;
             _options = options.Value.Build();
             _subscriptions = subscriptions.ToArray();
-            _serviceProvider = serviceProvider;
             _logger = logger;
             _mqttLifetimeOptions = mqttLifetimeOptions.Value;
         }
@@ -96,8 +93,11 @@ namespace MQTTnet.DependencyInjection
             {
                 var message = arg.ApplicationMessage;
                 var subsription = _subscriptions[message.SubscriptionIdentifiers.Min() - 1];
-                var consumer = subsription.ConsumerFactory(_serviceProvider);
-                await consumer.Handle(message, _lifetimeCts.Token);
+                await using (var scope = subsription.CreateScope())
+                {
+                    var consumer = scope.CreateConsumer();
+                    await consumer.Handle(message, _lifetimeCts.Token);
+                }
             }
             catch (Exception ex)
             {

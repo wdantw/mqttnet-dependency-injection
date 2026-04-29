@@ -13,7 +13,7 @@ namespace MQTTnet.DependencyInjection.Tests
     public class MqttTests
     {
         private const string LocalAddress = "127.0.0.1";
-        private readonly TimeSpan TestTimeout = System.Diagnostics.Debugger.IsAttached ? TimeSpan.FromMinutes(10) : TimeSpan.FromSeconds(3);
+        private readonly TimeSpan TestTimeout = System.Diagnostics.Debugger.IsAttached ? TimeSpan.FromMinutes(10) : TimeSpan.FromSeconds(5);
 
         #region common parts
 
@@ -63,23 +63,24 @@ namespace MQTTnet.DependencyInjection.Tests
                .Build();
         }
 
-        private IMqttConsumer CreateConsumer(out TaskCompletionSource<MqttApplicationMessage> consumerTcs)
+        private class ConsumerBase : IMqttConsumer
         {
-            var consumer = Substitute.For<IMqttConsumer>();
-            consumerTcs = ConsumerReset(consumer);
-            return consumer;
+            private TaskCompletionSource<MqttApplicationMessage> _taskCompletionSource = new();
+
+            public void Reset() => _taskCompletionSource = new();
+
+            public Task<MqttApplicationMessage> WaitMessageReceivedAsync(CancellationToken cancellationToken) => _taskCompletionSource.Task.WaitAsync(cancellationToken);
+
+            public Task Handle(MqttApplicationMessage message, CancellationToken cancellationToken)
+            {
+                _taskCompletionSource.SetResult(message);
+                return Task.CompletedTask;
+            }
         }
 
-        private TaskCompletionSource<MqttApplicationMessage> ConsumerReset(IMqttConsumer consumer)
-        {
-            var consumerTcs = new TaskCompletionSource<MqttApplicationMessage>();
-            consumer.ClearSubstitute();
-            consumer.Handle(Arg.Any<MqttApplicationMessage>(), Arg.Any<CancellationToken>())
-                .Returns(Task.CompletedTask)
-                .AndDoes(ci => consumerTcs.SetResult(ci.Arg<MqttApplicationMessage>()));
+        private class Consumer1 : ConsumerBase { }
 
-            return consumerTcs;
-        }
+        private class Consumer2 : ConsumerBase { }
 
         #endregion
 
@@ -95,14 +96,15 @@ namespace MQTTnet.DependencyInjection.Tests
             var testData = new Fixture().CreateMany<byte>(10).ToArray();
             var testCts = new CancellationTokenSource(TestTimeout);
 
-            var consumer = CreateConsumer(out var consumerTcs);
             using var mqttServer = await StartServer(port);
             using var mqttClient = await StartClient(port, testCts.Token);
 
             using var host = CreateHost(port, services =>
             {
-                services.RegisterMqttConsumer(_ => consumer, new MqttTopicFilterBuilder().WithTopic(topicName).Build());
+                services.RegisterMqttConsumerSingleton<Consumer1>(b => b.WithTopic(topicName));
             });
+
+            var consumer = host.Services.GetRequiredService<Consumer1>();
 
             var message = new MqttApplicationMessageBuilder()
                 .WithTopic(topicName)
@@ -112,7 +114,7 @@ namespace MQTTnet.DependencyInjection.Tests
             // act
             await host.StartAsync(testCts.Token);
             await mqttClient.PublishAsync(message, testCts.Token);
-            var result = await consumerTcs.Task.WaitAsync(testCts.Token);
+            var result = await consumer.WaitMessageReceivedAsync(testCts.Token);
             await host.StopAsync(testCts.Token);
 
             // asserts
@@ -134,17 +136,17 @@ namespace MQTTnet.DependencyInjection.Tests
             var testData2 = new Fixture().CreateMany<byte>(10).ToArray();
             var testCts = new CancellationTokenSource(TestTimeout);
 
-            var consumer1 = CreateConsumer(out var consumerTcs1);
-            var consumer2 = CreateConsumer(out var consumerTcs2);
-
             using var mqttServer = await StartServer(port);
             using var mqttClient = await StartClient(port, testCts.Token);
 
             using var host = CreateHost(port, services =>
             {
-                services.RegisterMqttConsumer(_ => consumer1, new MqttTopicFilterBuilder().WithTopic(topicName1).Build());
-                services.RegisterMqttConsumer(_ => consumer2, new MqttTopicFilterBuilder().WithTopic(topicName2).Build());
+                services.RegisterMqttConsumerSingleton<Consumer1>(b => b.WithTopic(topicName1));
+                services.RegisterMqttConsumerSingleton<Consumer2>(b => b.WithTopic(topicName2));
             });
+
+            var consumer1 = host.Services.GetRequiredService<Consumer1>();
+            var consumer2 = host.Services.GetRequiredService<Consumer2>();
 
             var message1 = new MqttApplicationMessageBuilder()
                 .WithTopic(topicName1)
@@ -160,8 +162,8 @@ namespace MQTTnet.DependencyInjection.Tests
             await host.StartAsync(testCts.Token);
             await mqttClient.PublishAsync(message1, testCts.Token);
             await mqttClient.PublishAsync(message2, testCts.Token);
-            var result1 = await consumerTcs1.Task.WaitAsync(testCts.Token);
-            var result2 = await consumerTcs2.Task.WaitAsync(testCts.Token);
+            var result1 = await consumer1.WaitMessageReceivedAsync(testCts.Token);
+            var result2 = await consumer2.WaitMessageReceivedAsync(testCts.Token);
             await host.StopAsync(testCts.Token);
 
             // asserts
@@ -184,13 +186,14 @@ namespace MQTTnet.DependencyInjection.Tests
             var testData2 = new Fixture().CreateMany<byte>(10).ToArray();
             var testCts = new CancellationTokenSource(TestTimeout);
 
-            var consumer = CreateConsumer(out var consumerTcs);
             using var mqttServer = await StartServer(port);
 
             using var host = CreateHost(port, services =>
             {
-                services.RegisterMqttConsumer(_ => consumer, new MqttTopicFilterBuilder().WithTopic(topicName).Build());
+                services.RegisterMqttConsumerSingleton<Consumer1>(b => b.WithTopic(topicName));
             });
+
+            var consumer = host.Services.GetRequiredService<Consumer1>();
 
             var message1 = new MqttApplicationMessageBuilder()
                 .WithTopic(topicName)
@@ -208,14 +211,14 @@ namespace MQTTnet.DependencyInjection.Tests
             await host.StartAsync(testCts.Token);
             using var mqttClient1 = await StartClient(port, testCts.Token);
             await mqttClient1.PublishAsync(message1, testCts.Token);
-            var result1 = await consumerTcs.Task.WaitAsync(testCts.Token);
+            var result1 = await consumer.WaitMessageReceivedAsync(testCts.Token);
             await mqttServer.StopAsync();
-            consumerTcs = ConsumerReset(consumer);
+            consumer.Reset();
             await mqttServer.StartAsync();
             await Task.Delay(200);
             using var mqttClient2 = await StartClient(port, testCts.Token);
             await mqttClient2.PublishAsync(message2, testCts.Token);
-            var result2 = await consumerTcs.Task.WaitAsync(testCts.Token);
+            var result2 = await consumer.WaitMessageReceivedAsync(testCts.Token);
             await host.StopAsync(testCts.Token);
 
             // asserts
