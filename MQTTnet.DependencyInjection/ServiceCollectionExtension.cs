@@ -60,18 +60,48 @@ namespace MQTTnet.DependencyInjection
         }
 
         /// <summary>
-        /// Регистрация консьюмера
+        /// Конфигурация фильтра для консьюмера
         /// </summary>
-        public static IServiceCollection RegisterMqttConsumer<TConsumer>(this IServiceCollection services)
-            where TConsumer : class, IMqttConsumer
-            => services.AddTransient<IMqttConsumer, TConsumer>();
+        public static IServiceCollection BuildMqttConsumerFilter<TConsumer>(this IServiceCollection services, Action<MqttTopicFilterBuilder>? configure)
+        {
+            services
+                .AddOptions<ConsumerFilterOptions<TConsumer>>()
+                .Configure(opt => configure?.Invoke(opt.FilterBuilder));
+
+            return services;
+        }
+
+        /// <summary>
+        /// Конфигурация фильтра для консьюмера
+        /// </summary>
+        public static IServiceCollection BuildMqttConsumerFilter<TConsumer, TDep>(this IServiceCollection services, Action<MqttTopicFilterBuilder, TDep> configure)
+            where TDep : class
+        {
+            services
+                .AddOptions<ConsumerFilterOptions<TConsumer>>()
+                .Configure<TDep>((opt, dep) => configure(opt.FilterBuilder, dep));
+
+            return services;
+        }
 
         /// <summary>
         /// Регистрация консьюмера
         /// </summary>
-        public static IServiceCollection RegisterMqttConsumer(this IServiceCollection services,
-            Func<IServiceProvider, IMqttConsumer> factory,
-            MqttTopicFilter filter)
-            => services.AddSingleton(new Subscription(filter, factory));
+        public static IServiceCollection RegisterMqttConsumerScoped<TConsumer>(this IServiceCollection services, Action<MqttTopicFilterBuilder>? configureFilter)
+            where TConsumer : class, IMqttConsumer
+            => services
+            .AddScoped<TConsumer>()
+            .AddSingleton<ISubscription, ScopedSubscription<TConsumer>>()
+            .BuildMqttConsumerFilter<TConsumer>(configureFilter);
+
+        /// <summary>
+        /// Регистрация консьюмера
+        /// </summary>
+        public static IServiceCollection RegisterMqttConsumerSingleton<TConsumer>(this IServiceCollection services, Action<MqttTopicFilterBuilder>? configureFilter)
+            where TConsumer : class, IMqttConsumer
+            => services
+            .AddSingleton<TConsumer>()
+            .AddSingleton<ISubscription, SingletonSubscription<TConsumer>>()
+            .BuildMqttConsumerFilter<TConsumer>(configureFilter);
     }
 }
